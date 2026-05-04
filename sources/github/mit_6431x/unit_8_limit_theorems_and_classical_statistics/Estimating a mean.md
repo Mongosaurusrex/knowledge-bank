@@ -1,0 +1,3 @@
+![[Pasted image 20241124123141.png]]• **Bias** is present when the expected value of the estimator does not equal the true parameter. For estimators like $M_n$, bias arises when additional terms (e.g., $\frac{1}{n}$) are introduced.
+
+• **Consistency** is achieved if both the bias and variance of the estimator approach $0\ as\ n \to \infty$, meaning the estimator converges to the true parameter in probability.
