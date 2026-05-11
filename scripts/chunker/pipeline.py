@@ -33,8 +33,8 @@ class MarkdownPreprocessor:
 
     _CALLOUT_HEADER = re.compile(r'^\s*>\s*\[!.*?\]\s*$', re.IGNORECASE)
     _BLOCKQUOTE     = re.compile(r'^\s*>\s?')
-    _DISPLAY_MATH   = re.compile(r'\$\$.*?\$\$', re.DOTALL)
-    _INLINE_MATH    = re.compile(r'\$[^$\n]+?\$')
+    _DISPLAY_MATH   = re.compile(r'\$\$(.*?)\$\$', re.DOTALL)
+    _INLINE_MATH    = re.compile(r'\$(?!\$)([^$\n]+?)\$')
     _CODE_FENCE     = re.compile(r'```.*?```', re.DOTALL)
     _BOLD_ITALIC    = re.compile(r'(\*{1,3}|_{1,3})(.*?)\1')
     _WIKILINK       = re.compile(r'\[\[([^\]|]+)(?:\|[^\]]*)?\]\]')
@@ -54,9 +54,8 @@ class MarkdownPreprocessor:
         # Strip code fences before anything else
         text = self._CODE_FENCE.sub('', text)
 
-        # Replace display math blocks with a placeholder sentence so the
-        # chunker treats them as a single logical unit rather than noise
-        text = self._DISPLAY_MATH.sub('[equation]', text)
+        # Preserve the actual math content while stripping the markdown fences.
+        text = self._DISPLAY_MATH.sub(lambda m: m.group(1).strip(), text)
 
         lines = text.split('\n')
         sections: list[tuple[str, list[str]]] = []
@@ -104,7 +103,7 @@ class MarkdownPreprocessor:
 
     def _clean_inline(self, text: str) -> str:
         text = self._BOLD_ITALIC.sub(r'\2', text)
-        text = self._INLINE_MATH.sub('[expr]', text)
+        text = self._INLINE_MATH.sub(r'\1', text)
         text = self._WIKILINK.sub(r'\1', text)
         text = self._MDLINK.sub(r'\1', text)
         # Collapse extra whitespace
