@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Iterator
 
 from semantic_chunker import SemanticChunker
+from hybrid_chunker import HybridChunker
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,7 @@ class MarkdownPreprocessor:
     _SLUG           = re.compile(r'^Slug:\s+.+$', re.MULTILINE)
     _HEADING        = re.compile(r'^(#{1,6})\s+(.+)$')
     _HR             = re.compile(r'^[-*_]{3,}\s*$')
+    _LEADING_ARTIFACT = re.compile(r'^\s*@@(?=(#{1,6}\s|[-*+]\s|\d+[.)]\s))')
 
     def process(self, text: str) -> list[tuple[str, str]]:
         """
@@ -53,6 +55,9 @@ class MarkdownPreprocessor:
 
         # Strip code fences before anything else
         text = self._CODE_FENCE.sub('', text)
+
+        # Remove generator artifacts like "@@##" while preserving valid markdown.
+        text = self._clean_markdown_artifacts(text)
 
         # Preserve the actual math content while stripping the markdown fences.
         text = self._DISPLAY_MATH.sub(lambda m: m.group(1).strip(), text)
@@ -114,6 +119,10 @@ class MarkdownPreprocessor:
         """Join buffered lines into prose, inserting spaces between items."""
         return ' '.join(lines).strip()
 
+    def _clean_markdown_artifacts(self, text: str) -> str:
+        cleaned_lines = [self._LEADING_ARTIFACT.sub('', line) for line in text.split('\n')]
+        return '\n'.join(cleaned_lines)
+
 
 # ---------------------------------------------------------------------------
 # Chunk dataclass
@@ -140,15 +149,28 @@ class Pipeline:
         similarity_threshold: float = 0.5,
         min_chunk_size: int = 100,
         max_chunk_size: int = 2000,
+        chunker_type: str = 'hybrid',
+        target_tokens: int = 800,
+        overlap_tokens: int = 100,
     ):
         self.sources_dir = Path(sources_dir)
         self.output_path = Path(output_path)
         self.preprocessor = MarkdownPreprocessor()
-        self.chunker = SemanticChunker(
-            similarity_threshold=similarity_threshold,
-            min_chunk_size=min_chunk_size,
-            max_chunk_size=max_chunk_size,
-        )
+        if chunker_type == 'hybrid':
+            self.chunker = HybridChunker(
+                similarity_threshold=similarity_threshold,
+                min_chunk_size=min_chunk_size,
+                max_chunk_size=max_chunk_size,
+                token_aware=True,
+                target_tokens=target_tokens,
+                overlap_tokens=overlap_tokens,
+            )
+        else:
+            self.chunker = SemanticChunker(
+                similarity_threshold=similarity_threshold,
+                min_chunk_size=min_chunk_size,
+                max_chunk_size=max_chunk_size,
+            )
 
     def _extract_title(self, text: str, file_path: Path) -> str:
         for line in text.split('\n')[:10]:
@@ -229,7 +251,25 @@ def main():
     parser.add_argument('--threshold', type=float, default=0.5,          help='Cosine similarity split threshold')
     parser.add_argument('--min',       type=int,   default=100,          help='Min chunk size in chars')
     parser.add_argument('--max',       type=int,   default=2000,         help='Max chunk size in chars')
+    parser.add_argument('--chunker',   choices=['semantic', 'hybrid'], default='hybrid',
+                        help='Chunker backend to use')
+    parser.add_argument('--target-tokens', type=int, default=800,
+                        help='Target tokens per chunk (hybrid token-aware mode)')
+    parser.add_argument('--overlap-tokens', type=int, default=100,
+                        help='Token overlap between chunks (hybrid token-aware mode)')
     args = parser.parse_args()
+
+    print(
+        f"Pipeline settings:\n"
+        f"  chunker        : {args.chunker}\n"
+        f"  sources        : {args.sources}\n"
+        f"  output         : {args.output}\n"
+        f"  target-tokens  : {args.target_tokens}\n"
+        f"  overlap-tokens : {args.overlap_tokens}\n"
+        f"  threshold      : {args.threshold}\n"
+        f"  min-chars      : {args.min}\n"
+        f"  max-chars      : {args.max}"
+    )
 
     pipeline = Pipeline(
         sources_dir=args.sources,
@@ -237,6 +277,9 @@ def main():
         similarity_threshold=args.threshold,
         min_chunk_size=args.min,
         max_chunk_size=args.max,
+        chunker_type=args.chunker,
+        target_tokens=args.target_tokens,
+        overlap_tokens=args.overlap_tokens,
     )
     pipeline.run()
 
